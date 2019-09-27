@@ -1,12 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 
 namespace ImStor.Models
 {
-    public interface IImageRepository : IDisposable
+    public interface IImageRepository
     {
-        Image FindById(int id);
+        void Create(Image item);
+        Task<Image> FindById(int id);
     }
 }

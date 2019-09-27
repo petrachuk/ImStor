@@ -1,75 +1,34 @@
-﻿using Microsoft.Extensions.Configuration;
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Linq;
+﻿using System.Data;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using Npgsql;
-using NpgsqlTypes;
+using Dapper;
 
 namespace ImStor.Models
 {
     public class ImageRepository : IImageRepository
     {
-        private bool disposed = false;
-        private NpgsqlConnection Connection { get; }
+        private readonly string connectionString;
 
         public ImageRepository(IConfiguration configuration)
         {
-            Connection = new NpgsqlConnection(configuration.GetConnectionString("DefaultConnection"));
-            Connection.Open();
+            connectionString = configuration.GetConnectionString("DefaultConnection");
         }
 
+        internal IDbConnection Connection => new NpgsqlConnection(connectionString);
 
-        public Image FindById(int id)
+        public void Create(Image item)
         {
-            byte[] data = {};
-
-            using (var command = Connection.CreateCommand())
-            {
-                command.CommandText = "SELECT T.data FROM data_inside AS T WHERE T.id = :id";
-                command.CommandType = CommandType.Text;
-
-                command.Parameters.Add(new NpgsqlParameter("id", NpgsqlDbType.Integer)).Value = id;
-
-                using (var reader = command.ExecuteReader())
-                {
-                    if (reader.HasRows)
-                    {
-                        while (reader.Read())
-                        {
-                            data = (byte[]) reader.GetValue(0);
-                        }
-                    }
-                }
-            }
-
-            return new Image {ImageId = id.ToString(), Data = data};
+            using IDbConnection connection = Connection;
+            connection.Open();
+            connection.ExecuteAsync("INSERT INTO customer (name,phone,email,address) VALUES(@Name,@Phone,@Email,@Address)", item);
         }
 
-        #region IDisposable
-        public void Dispose()
+        public async Task<Image> FindById(int id)
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
+            using IDbConnection connection = Connection;
+            connection.Open();
+            return await connection.QueryFirstOrDefaultAsync<Image>("SELECT * FROM customer WHERE id = @Id", new { Id = id });
         }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (disposed) return;
-
-            if (disposing)
-            {
-                Connection?.Dispose();
-            }
-
-            disposed = true;
-        }
-
-        ~ImageRepository()
-        {
-            Dispose(false);
-        }
-        #endregion
     }
 }
