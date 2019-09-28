@@ -13,7 +13,7 @@ namespace ImStor
         {
             services.AddTransient<IImageRepository, ImageRepository>();
 
-            services.AddControllers();
+            services.AddControllers().AddXmlDataContractSerializerFormatters();
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

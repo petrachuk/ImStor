@@ -4,7 +4,7 @@ namespace ImStor.Models
 {
     public interface IImageRepository
     {
-        void Create(Image item);
-        Task<Image> FindById(int id);
+        Task<Image> CreateAsync(Image item);
+        Task<Image> GetAsync(string md5, int size);
     }
 }

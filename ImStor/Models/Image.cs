@@ -1,13 +1,12 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace ImStor.Models
 {
     public class Image
     {
-        public string ImageId { get; set; }
+        public Guid Md5 { get; set; }
+        public string Ext { get; set; }
+        public string Mime { get; set; }
         public byte[] Data { get; set; }
     }
 }
