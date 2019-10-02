@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using System.Net.Http;
 using System.Threading.Tasks;
 using ImStor.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -12,16 +13,43 @@ namespace ImStor.Controllers
     {
         private IImageRepository Repository { get; }
         private IConfiguration Configuration { get; }
+        private IHttpClientFactory HttpClientFactory { get; }
 
-        public ImageController(IImageRepository repository, IConfiguration configuration)
+        public ImageController(IImageRepository repository, IConfiguration configuration, IHttpClientFactory clientFactory)
         {
             Repository = repository;
             Configuration = configuration;
+            HttpClientFactory = clientFactory;
         }
 
         [HttpPost("add")]
         public async Task<ActionResult> Post()
         {
+            var mime = Request.ContentType;
+            var callbackUrl = Request.Headers.ContainsKey("X-CallbackUrl") ? Request.Headers["X-CallbackUrl"].ToString() : null;
+            var fileName = Request.Headers.ContainsKey("X-FileName") ? Request.Headers["X-FileName"].ToString() : null;
+
+            // Передадим картинку на обработку в сервис распознования
+            Task task = Task.Run(async () =>
+            {
+                using var client = HttpClientFactory.CreateClient();
+                using var request = new HttpRequestMessage(HttpMethod.Post, Configuration.GetValue<string>("HashService"));
+                using var response = await client.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    // Обновим данные в БД картинок
+
+
+                    // Передадим загружающему изображение
+                    if (!string.IsNullOrWhiteSpace(callbackUrl))
+                    {
+                        using var returnRequest = new HttpRequestMessage(HttpMethod.Post, callbackUrl);
+                        await client.SendAsync(returnRequest);
+                    }
+                }
+            });
+
             byte[] data;
             await using (var ms = new MemoryStream())
             {
@@ -29,15 +57,9 @@ namespace ImStor.Controllers
                 data = ms.ToArray();
             }
 
-            var mime = Request.ContentType;
-
             var md5 = await Repository.CreateAsync(new Image {Data = data, Mime = mime});
 
-            var tmp = md5.Md5.ToString().Replace("-", "");
-            tmp = tmp.Insert(8, "/");
-            tmp = tmp.Insert(6, "/");
-            tmp = tmp.Insert(4, "/");
-            tmp = tmp.Insert(2, "/");
+            var name = md5.Md5.ToString().Replace("-", "").Insert(8, "/").Insert(6, "/").Insert(4, "/").Insert(2, "/");
             
             var ext = mime switch
             {
@@ -47,7 +69,7 @@ namespace ImStor.Controllers
                 _ => "jpg",
             };
 
-            var uri = $"{Configuration.GetValue<string>("BaseUri")}{tmp}.{ext}";
+            var uri = $"{Configuration.GetValue<string>("BaseUri")}{name}.{ext}";
 
             return Ok(new {uri});
         }

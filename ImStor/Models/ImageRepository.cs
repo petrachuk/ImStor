@@ -33,6 +33,8 @@ namespace ImStor.Models
             {
                 if (ex.SqlState != "23505") throw;
 
+                // TODO Разобраться почему MD5 в .NET и Postgre выдают разные значения. Вычислять тут, без запроса к БД
+                // Уже есть
                 item.Md5 = await connection.ExecuteScalarAsync<Guid>("SELECT CAST(md5(:data) AS uuid)",
                     new {item.Data});
             }

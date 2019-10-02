@@ -12,6 +12,7 @@ namespace ImStor
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddTransient<IImageRepository, ImageRepository>();
+            services.AddHttpClient();
 
             services.AddControllers().AddXmlDataContractSerializerFormatters();
         }
