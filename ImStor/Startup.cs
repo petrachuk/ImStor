@@ -1,9 +1,10 @@
+using ImStor.Domain.Abstract;
+using ImStor.Domain.Concrete;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using ImStor.Models;
 
 namespace ImStor
 {
@@ -12,6 +13,9 @@ namespace ImStor
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddTransient<IImageRepository, ImageRepository>();
+            services.AddTransient<IHashRepository, HashRepository>();
+            services.AddTransient<ISizeRepository, SizeRepository>();
+            services.AddTransient<ITypeRepository, TypeRepository>();
             services.AddHttpClient();
 
             services.AddControllers().AddXmlDataContractSerializerFormatters();
@@ -30,6 +34,8 @@ namespace ImStor
             {
                 ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
             });
+
+            app.UseStaticFiles();
 
             app.UseEndpoints(endpoints =>
             {

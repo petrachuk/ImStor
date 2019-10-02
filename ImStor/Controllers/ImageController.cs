@@ -1,6 +1,9 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
+using ImStor.Domain.Abstract;
+using ImStor.Domain.Entity;
 using ImStor.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -11,13 +14,17 @@ namespace ImStor.Controllers
     [Route("/")]
     public class ImageController : ControllerBase
     {
-        private IImageRepository Repository { get; }
+        private IImageRepository ImageRepository { get; }
+        private IHashRepository HashRepository { get; }
+        private ITypeRepository TypeRepository { get; }
         private IConfiguration Configuration { get; }
         private IHttpClientFactory HttpClientFactory { get; }
 
-        public ImageController(IImageRepository repository, IConfiguration configuration, IHttpClientFactory clientFactory)
+        public ImageController(IImageRepository imageRepository, IHashRepository hashRepository, ITypeRepository typeRepository, IConfiguration configuration, IHttpClientFactory clientFactory)
         {
-            Repository = repository;
+            ImageRepository = imageRepository;
+            HashRepository = hashRepository;
+            TypeRepository = typeRepository;
             Configuration = configuration;
             HttpClientFactory = clientFactory;
         }
@@ -25,53 +32,74 @@ namespace ImStor.Controllers
         [HttpPost("add")]
         public async Task<ActionResult> Post()
         {
-            var mime = Request.ContentType;
+            // URL обратного вызова
             var callbackUrl = Request.Headers.ContainsKey("X-CallbackUrl") ? Request.Headers["X-CallbackUrl"].ToString() : null;
-            var fileName = Request.Headers.ContainsKey("X-FileName") ? Request.Headers["X-FileName"].ToString() : null;
 
-            // Передадим картинку на обработку в сервис распознования
-            Task task = Task.Run(async () =>
+            // Получим информацию о файле
+            var mime = Request.ContentType;
+            if (mime == null) return StatusCode(415);   // Unsupported Media Type
+
+            var type = await TypeRepository.FindByMimeAsync(mime);
+            if (type == null) return StatusCode(415); // Unsupported Media Type
+
+            /* _ = Task.Run(async () =>
             {
-                using var client = HttpClientFactory.CreateClient();
-                using var request = new HttpRequestMessage(HttpMethod.Post, Configuration.GetValue<string>("HashService"));
-                using var response = await client.SendAsync(request);
+                var hashServiceUrl = Configuration.GetValue<string>("HashService");
 
-                if (response.IsSuccessStatusCode)
+                if (!string.IsNullOrWhiteSpace(hashServiceUrl))
                 {
-                    // Обновим данные в БД картинок
+                    using var client = HttpClientFactory.CreateClient();
 
+                    // Передадим картинку на обработку в сервис распознования
+                    using var request = new HttpRequestMessage(HttpMethod.Post, hashServiceUrl);
+                    using var response = await client.SendAsync(request);
 
-                    // Передадим загружающему изображение
-                    if (!string.IsNullOrWhiteSpace(callbackUrl))
+                    if (response.IsSuccessStatusCode)
                     {
-                        using var returnRequest = new HttpRequestMessage(HttpMethod.Post, callbackUrl);
-                        await client.SendAsync(returnRequest);
+                        // Обновим данные в БД картинок
+                        await HashRepository.UpdateAsync(new Hash());
+
+                        // Передадим загружающему изображение
+                        if (!string.IsNullOrWhiteSpace(callbackUrl))
+                        {
+                            using var returnRequest = new HttpRequestMessage(HttpMethod.Post, callbackUrl);
+                            await client.SendAsync(returnRequest);
+                        }
                     }
                 }
-            });
+            }); */
 
-            byte[] data;
+            // Сформируем объект Image
+            var newImage = new Image
+            {
+                Size = 0,   // Исходный
+                Type = type.Id,
+                Created = DateTime.Now
+            };
+
             await using (var ms = new MemoryStream())
             {
                 await Request.Body.CopyToAsync(ms);
-                data = ms.ToArray();
+                newImage.Data = ms.ToArray();
             }
 
-            var md5 = await Repository.CreateAsync(new Image {Data = data, Mime = mime});
+            newImage.Md5 = newImage.Data.GetMd5Hash();
 
-            var name = md5.Md5.ToString().Replace("-", "").Insert(8, "/").Insert(6, "/").Insert(4, "/").Insert(2, "/");
+            // Сформируем записи в БД
+            var imageId = await ImageRepository.CreateAsync(newImage);
+            await HashRepository.CreateAsync(new Hash {Id = imageId});
+
+            var fileName = newImage.Md5.ToString().Replace("-", "").Insert(8, "/").Insert(6, "/").Insert(4, "/").Insert(2, "/");
             
-            var ext = mime switch
+            var fileExt = mime switch
             {
                 "image/gif" => "gif",
                 "image/png" => "png",
                 "image/svg+xml" => "svg",
                 _ => "jpg",
             };
-
-            var uri = $"{Configuration.GetValue<string>("BaseUri")}{name}.{ext}";
-
-            return Ok(new {uri});
+            
+            return Ok(new UploadResult { Uri = $"{Configuration.GetValue<string>("BaseUri")}{fileName}.{fileExt}" });
         }
 
         [HttpGet("{id1}/{id2}/{id3}/{id4}/{id5}.{ext}")]
@@ -80,15 +108,18 @@ namespace ImStor.Controllers
         {
             var md5 = string.Concat(id1, id2, id3, id4, id5);
 
-            var image = await Repository.GetAsync(md5, size);
+            var image = await ImageRepository.FindByMd5AndSizeAsync(new Guid(md5), size);
+            if (image == null && size != 0) image = await ImageRepository.FindByMd5AndSizeAsync(new Guid(md5), 0);
 
             if (image == null) return NotFound();
 
+            var type = await TypeRepository.FindByIdAsync(image.Type);
+
             var fileName = id5;
             if (size != 0) fileName += $"_{size}";
-            fileName += $".{image.Ext}";
+            fileName += $".{type.Ext}";
 
-            return File(image.Data, image.Mime, fileName);
+            return File(image.Data, type.Mime, fileName);
         }
     }
 }
