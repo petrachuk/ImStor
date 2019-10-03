@@ -1,7 +1,10 @@
 ﻿using System;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
+using System.Xml;
+using ImProc.Models;
 using ImStor.Domain.Abstract;
 using ImStor.Domain.Entity;
 using ImStor.Models;
@@ -39,10 +42,27 @@ namespace ImStor.Controllers
             var mime = Request.ContentType;
             if (mime == null) return StatusCode(415);   // Unsupported Media Type
 
-            var type = await TypeRepository.FindByMimeAsync(mime);
-            if (type == null) return StatusCode(415); // Unsupported Media Type
+            // var type = await TypeRepository.FindByMimeAsync(mime);
+            // if (type == null) return StatusCode(415); // Unsupported Media Type
 
-            /* _ = Task.Run(async () =>
+            // Сформируем объект Image
+            var newImage = new Image
+            {
+                Size = 0,   // Исходный
+                Type = 1,// type.Id,
+                Created = DateTime.Now
+            };
+
+            await using (var ms = new MemoryStream())
+            {
+                await Request.Body.CopyToAsync(ms);
+                newImage.Data = ms.ToArray();
+            }
+
+            newImage.Md5 = newImage.Data.GetMd5Hash();
+
+            // Запрос на получение хешей
+            //_ = Task.Run(async () =>
             {
                 var hashServiceUrl = Configuration.GetValue<string>("HashService");
 
@@ -51,11 +71,56 @@ namespace ImStor.Controllers
                     using var client = HttpClientFactory.CreateClient();
 
                     // Передадим картинку на обработку в сервис распознования
-                    using var request = new HttpRequestMessage(HttpMethod.Post, hashServiceUrl);
+                    using var request = new HttpRequestMessage(HttpMethod.Post, hashServiceUrl)
+                    {
+                        Content = new ByteArrayContent(newImage.Data)
+                    };
+                    request.Headers.Add("Accept", Request.Headers["Accept"].ToString());
+                    request.Content.Headers.ContentType = new MediaTypeHeaderValue(mime);
+
+
                     using var response = await client.SendAsync(request);
 
                     if (response.IsSuccessStatusCode)
                     {
+                        long ahash;
+                        long phash;
+                        long dhash;
+
+                        if (response.Content.Headers.ContentType.MediaType == "application/json")
+                        {
+                            // var obj = Newtonsoft.Json.JsonConvert.DeserializeObject<HashResult>(await response.Content.ReadAsStringAsync());
+                        }
+                        else
+                        {
+                            var xml = new XmlDocument();
+                            xml.LoadXml(await response.Content.ReadAsStringAsync());
+
+                            foreach (XmlNode elem in xml.DocumentElement.ChildNodes)
+                            {
+                                var name = elem.Name;
+                                var value = elem.InnerText;
+
+                                switch (name)
+                                {
+                                    case "AHash":
+                                        ahash = long.Parse(value);
+                                        break;
+                                    case "PHash":
+                                        phash = long.Parse(value);
+                                        break;
+                                    case "DHash":
+                                        dhash = long.Parse(value);
+                                        break;
+                                }
+                            }
+                        }
+
+                        
+
+                        
+
+
                         // Обновим данные в БД картинок
                         await HashRepository.UpdateAsync(new Hash());
 
@@ -67,23 +132,8 @@ namespace ImStor.Controllers
                         }
                     }
                 }
-            }); */
-
-            // Сформируем объект Image
-            var newImage = new Image
-            {
-                Size = 0,   // Исходный
-                Type = type.Id,
-                Created = DateTime.Now
-            };
-
-            await using (var ms = new MemoryStream())
-            {
-                await Request.Body.CopyToAsync(ms);
-                newImage.Data = ms.ToArray();
             }
-
-            newImage.Md5 = newImage.Data.GetMd5Hash();
+            //);
 
             // Сформируем записи в БД
             var imageId = await ImageRepository.CreateAsync(newImage);
